@@ -1,10 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using Workforce.Data;
 using Workforce.Models;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace Workforce.Controllers
 {
@@ -17,113 +19,134 @@ namespace Workforce.Controllers
             _context = context;
         }
 
-        // GET: Students
-        public async Task<IActionResult> Index(string sortOrder, string currentFilter, string searchString, int? pageNumber)
+        public async Task<IActionResult> Index()
         {
-            ViewData["CurrentSort"] = sortOrder;
-            ViewData["NameSortParm"] = string.IsNullOrEmpty(sortOrder) ? "LastName_desc" : "";
-            ViewData["DateSortParm"] = sortOrder == "EnrollmentDate" ? "EnrollmentDate_desc" : "EnrollmentDate";
-
-            if (searchString != null) pageNumber = 1;
-            else searchString = currentFilter;
-
-            ViewData["CurrentFilter"] = searchString;
-
-            var students = _context.Students.AsQueryable();
-
-            if (!string.IsNullOrEmpty(searchString))
-            {
-                students = students.Where(s => s.LastName.Contains(searchString) || s.FirstMidName.Contains(searchString));
-            }
-
-            if (string.IsNullOrEmpty(sortOrder)) sortOrder = "LastName";
-
-            bool descending = sortOrder.EndsWith("_desc");
-            if (descending) sortOrder = sortOrder[..^5];
-
-            students = descending
-                ? students.OrderByDescending(e => EF.Property<object>(e, sortOrder))
-                : students.OrderBy(e => EF.Property<object>(e, sortOrder));
-
-            return View(await PaginatedList<Student>.CreateAsync(students.AsNoTracking(), pageNumber ?? 1, 3));
+            return View(await _context.Students.Include(s => s.Enrollments).ThenInclude(e => e.Course).ToListAsync());
         }
 
-        // GET: Students/Details/5
-        public async Task<IActionResult> Details(int? id)
+        public IActionResult Create()
         {
-            var student = await _context.Students
-                .Include(s => s.Enrollments).ThenInclude(e => e.Course)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.ID == id);
-
-            return student == null ? NotFound() : View(student);
+            PopulateCoursesDropDownList();
+            return View();
         }
 
-        // GET: Students/Create
-        public IActionResult Create() => View();
-
-        // POST: Students/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("EnrollmentDate,FirstMidName,LastName")] Student student)
+        public async Task<IActionResult> Create([Bind("LastName,FirstMidName,EnrollmentDate")] Student student, int[] selectedCourses)
         {
-            if (!ModelState.IsValid) return View(student);
-
-            _context.Add(student);
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
-        }
-
-        // GET: Students/Edit/5
-        public async Task<IActionResult> Edit(int? id)
-        {
-            var student = await _context.Students.FindAsync(id);
-            return student == null ? NotFound() : View(student);
-        }
-
-        // POST: Students/Edit/5
-        [HttpPost, ActionName("Edit")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> EditPost(int? id)
-        {
-            var student = await _context.Students.FirstOrDefaultAsync(s => s.ID == id);
-            if (student == null) return NotFound();
-
-            if (await TryUpdateModelAsync(student, "", s => s.FirstMidName, s => s.LastName, s => s.EnrollmentDate))
+            if (selectedCourses != null)
             {
+                student.Enrollments = new List<Enrollment>();
+                foreach (var courseId in selectedCourses)
+                {
+                    student.Enrollments.Add(new Enrollment
+                    {
+                        CourseID = courseId
+                    });
+                }
+            }
+
+            if (ModelState.IsValid)
+            {
+                _context.Add(student);
                 await _context.SaveChangesAsync();
                 return RedirectToAction(nameof(Index));
             }
 
+            PopulateCoursesDropDownList(selectedCourses);
             return View(student);
         }
 
-        // GET: Students/Delete/5
-        public async Task<IActionResult> Delete(int? id, bool? saveChangesError = false)
+        public async Task<IActionResult> Edit(int? id)
         {
-            var student = await _context.Students.AsNoTracking().FirstOrDefaultAsync(m => m.ID == id);
-            if (student == null) return NotFound();
-
-            if (saveChangesError.GetValueOrDefault())
-                ViewData["ErrorMessage"] = "Delete failed. Try again.";
-
-            return View(student);
-        }
-
-        // POST: Students/Delete/5
-        [HttpPost, ActionName("Delete")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeleteConfirmed(int id)
-        {
-            var student = await _context.Students.FindAsync(id);
-            if (student != null)
+            if (id == null)
             {
-                _context.Students.Remove(student);
-                await _context.SaveChangesAsync();
+                return NotFound();
             }
-            return RedirectToAction(nameof(Index));
+
+            var student = await _context.Students
+                .Include(s => s.Enrollments)
+                .ThenInclude(e => e.Course)
+                .FirstOrDefaultAsync(m => m.ID == id);
+
+            if (student == null)
+            {
+                return NotFound();
+            }
+
+            PopulateCoursesDropDownList(student.Enrollments.Select(e => e.CourseID));
+            return View(student);
         }
 
-        private bool StudentExists(int id) => _context.Students.Any(e => e.ID == id);
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(int id, [Bind("ID,LastName,FirstMidName,EnrollmentDate")] Student student, int[] selectedCourses)
+        {
+            if (id != student.ID)
+            {
+                return NotFound();
+            }
+
+            var studentToUpdate = await _context.Students
+                .Include(s => s.Enrollments)
+                .ThenInclude(e => e.Course)
+                .FirstOrDefaultAsync(s => s.ID == id);
+
+            if (await TryUpdateModelAsync(studentToUpdate, "", s => s.FirstMidName, s => s.LastName, s => s.EnrollmentDate))
+            {
+                UpdateStudentCourses(selectedCourses, studentToUpdate);
+
+                try
+                {
+                    await _context.SaveChangesAsync();
+                    return RedirectToAction(nameof(Index));
+                }
+                catch (DbUpdateException)
+                {
+                    ModelState.AddModelError("", "Unable to save changes.");
+                }
+            }
+
+            PopulateCoursesDropDownList(selectedCourses);
+            return View(studentToUpdate);
+        }
+
+        private void PopulateCoursesDropDownList(IEnumerable<int> selectedCourses = null)
+        {
+            var courses = _context.Courses.OrderBy(c => c.Title).ToList();
+            ViewBag.Courses = new MultiSelectList(courses, "CourseID", "Title", selectedCourses);
+        }
+
+        private void UpdateStudentCourses(int[] selectedCourses, Student student)
+        {
+            if (selectedCourses == null)
+            {
+                student.Enrollments = new List<Enrollment>();
+                return;
+            }
+
+            var selectedCoursesHS = new HashSet<int>(selectedCourses);
+            var studentCourses = new HashSet<int>(student.Enrollments.Select(e => e.CourseID));
+
+            foreach (var course in _context.Courses)
+            {
+                if (selectedCoursesHS.Contains(course.CourseID))
+                {
+                    if (!studentCourses.Contains(course.CourseID))
+                    {
+                        student.Enrollments.Add(new Enrollment { CourseID = course.CourseID, StudentID = student.ID });
+                    }
+                }
+                else
+                {
+                    if (studentCourses.Contains(course.CourseID))
+                    {
+                        var enrollmentToRemove = student.Enrollments.FirstOrDefault(e => e.CourseID == course.CourseID);
+                        if (enrollmentToRemove != null)
+                            _context.Remove(enrollmentToRemove);
+                    }
+                }
+            }
+        }
     }
 }

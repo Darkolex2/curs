@@ -12,21 +12,49 @@
     <div class="col-md-4">
         <form asp-action="Create">
             <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
             <div class="form-group">
                 <label asp-for="LastName" class="control-label"></label>
                 <input asp-for="LastName" class="form-control" />
                 <span asp-validation-for="LastName" class="text-danger"></span>
             </div>
+
             <div class="form-group">
                 <label asp-for="FirstMidName" class="control-label"></label>
                 <input asp-for="FirstMidName" class="form-control" />
                 <span asp-validation-for="FirstMidName" class="text-danger"></span>
             </div>
+
             <div class="form-group">
                 <label asp-for="EnrollmentDate" class="control-label"></label>
-                <input asp-for="EnrollmentDate" class="form-control" />
+                <input asp-for="EnrollmentDate" class="form-control" type="date" />
                 <span asp-validation-for="EnrollmentDate" class="text-danger"></span>
             </div>
+
+            <hr />
+            <h5>Enrollment</h5>
+
+            <div class="form-group">
+                <label class="control-label">Course</label>
+                <select name="Enrollments[0].CourseID" class="form-control">
+                    <option value="1">Chemistry</option>
+                    <option value="2">Microeconomics</option>
+                    <option value="3">Macroeconomics</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="control-label">Grade</label>
+                <select name="Enrollments[0].Grade" class="form-control">
+                    <option value="">Select</option>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                    <option value="D">D</option>
+                    <option value="F">F</option>
+                </select>
+            </div>
+
             <div class="form-group">
                 <input type="submit" value="Create" class="btn btn-primary" />
             </div>
